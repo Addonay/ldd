@@ -15,6 +15,11 @@
 
 	function selectArea(area: string) {
 		appState.selectedArea = area;
+		appState.selectedGroupId = null;
+	}
+
+	function toggleGroup(groupId: string) {
+		appState.selectedGroupId = appState.selectedGroupId === groupId ? null : groupId;
 	}
 </script>
 
@@ -59,9 +64,21 @@
 				</Sidebar.SidebarGroupLabel>
 				<Sidebar.SidebarGroupContent>
 					<Sidebar.SidebarMenu>
+						<Sidebar.SidebarMenuItem>
+							<Sidebar.SidebarMenuButton
+								onclick={() => (appState.selectedGroupId = null)}
+								isActive={appState.selectedGroupId === null}
+							>
+								<FolderOpen class="h-4 w-4" />
+								<span>All Groups</span>
+							</Sidebar.SidebarMenuButton>
+						</Sidebar.SidebarMenuItem>
 						{#each appState.kpiGroups as group}
 							<Sidebar.SidebarMenuItem>
-								<Sidebar.SidebarMenuButton>
+								<Sidebar.SidebarMenuButton
+									onclick={() => toggleGroup(group.id)}
+									isActive={appState.selectedGroupId === group.id}
+								>
 									<FolderOpen class="h-4 w-4" />
 									<span>{group.name}</span>
 									<Sidebar.SidebarMenuBadge>

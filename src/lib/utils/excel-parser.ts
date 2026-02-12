@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
 import type { AreaData, KpiData, KpiDataPoint } from '$lib/stores/app-state.svelte';
 
+const MAX_SOURCE_ROW = 403;
+
 /**
  * Parse an Excel file buffer into area data.
  *
@@ -30,11 +32,12 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	if (!sheetName) return { areas, kpiNames, areaNames };
 
 	const sheet = workbook.Sheets[sheetName];
-	const raw: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+	const allRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
 		header: 1,
-		raw: false,
-		dateNF: 'yyyy-mm-dd'
+		raw: true,
+		defval: null
 	});
+	const raw = allRows.slice(0, MAX_SOURCE_ROW);
 
 	if (raw.length < 2) return { areas, kpiNames, areaNames };
 
@@ -197,31 +200,56 @@ function parseAreaBlock(
 	return { name: areaName, kpis };
 }
 
-function parseDate(val: unknown): Date | null {
-	if (val instanceof Date) return val;
+function makeDateOnly(year: number, month: number, day: number): Date | null {
+	const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+	if (
+		isNaN(date.getTime()) ||
+		date.getFullYear() !== year ||
+		date.getMonth() !== month - 1 ||
+		date.getDate() !== day
+	) {
+		return null;
+	}
+	return date;
+}
+
+export function parseDate(val: unknown): Date | null {
+	if (val instanceof Date) {
+		// Ensure it's a valid date
+		return isNaN(val.getTime()) ? null : val;
+	}
 	if (typeof val === 'number') {
 		// Excel serial date
 		const d = XLSX.SSF.parse_date_code(val);
-		if (d) return new Date(d.y, d.m - 1, d.d);
+		if (d) {
+			return makeDateOnly(d.y, d.m, d.d);
+		}
 	}
 	if (typeof val === 'string') {
 		const s = val.trim();
 		if (!s) return null;
-		// Try ISO format
-		const d = new Date(s);
-		if (!isNaN(d.getTime())) return d;
-		// Try DD/MM/YYYY
-		const parts = s.split(/[\/\-\.]/);
-		if (parts.length === 3) {
-			const [a, b, c] = parts.map(Number);
-			// If first part > 31, it's YYYY-MM-DD
-			if (a > 31) return new Date(a, b - 1, c);
-			// If third part > 31, it's DD/MM/YYYY or MM/DD/YYYY
-			if (c > 31) {
-				// Assume DD/MM/YYYY for non-US locale
-				return new Date(c, b - 1, a);
-			}
+
+		// Expected format in source files: DD-MM-YYYY (also accepts / or . separators)
+		const dmyMatch = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(s);
+		if (dmyMatch) {
+			const day = Number(dmyMatch[1]);
+			const month = Number(dmyMatch[2]);
+			const year = Number(dmyMatch[3]);
+			return makeDateOnly(year, month, day);
 		}
+
+		// Also support explicit ISO-like YYYY-MM-DD if present
+		const ymdMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+		if (ymdMatch) {
+			const year = Number(ymdMatch[1]);
+			const month = Number(ymdMatch[2]);
+			const day = Number(ymdMatch[3]);
+			return makeDateOnly(year, month, day);
+		}
+
+		// Last fallback for uncommon textual date strings
+		const parsed = new Date(s);
+		if (!isNaN(parsed.getTime())) return parsed;
 	}
 	return null;
 }

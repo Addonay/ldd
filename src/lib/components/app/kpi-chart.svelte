@@ -177,6 +177,8 @@
 							displayFormats: { day: 'MMM d' },
 							tooltipFormat: 'MMM d, yyyy'
 						},
+						min: data.datasets[0]?.data[0]?.x,
+						max: data.datasets[0]?.data[data.datasets[0]?.data.length - 1]?.x,
 						ticks: {
 							color: fgColor,
 							font: { size: 9, family: 'Courier New, monospace' },
@@ -206,6 +208,9 @@
 					}
 				},
 				plugins: {
+					title: {
+						display: false
+					},
 					legend: {
 						display: additionalKpis.length > 0,
 						position: 'bottom',
@@ -336,7 +341,7 @@
 			{/if}
 
 			<h3
-				class="truncate text-xs font-semibold tracking-wide uppercase {status === 'failing'
+				class="max-w-full wrap-break-word text-xs font-semibold tracking-wide uppercase leading-tight {status === 'failing'
 					? 'text-destructive'
 					: 'text-foreground'}"
 				title={getChartTitle()}

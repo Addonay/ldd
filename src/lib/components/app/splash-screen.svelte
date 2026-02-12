@@ -6,6 +6,7 @@
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { useAppState, type AreaData } from '$lib/stores/app-state.svelte';
 	import { parseExcelBuffer, fetchExcelFromUrl } from '$lib/utils/excel-parser';
+	import { getDefaultThreshold } from '$lib/utils/default-thresholds';
 	import { toast } from 'svelte-sonner';
 	import { SvelteMap } from 'svelte/reactivity';
 
@@ -33,11 +34,14 @@
 		appState.areaNames = areaNames;
 		appState.selectedArea = areaNames[0] ?? '';
 
-		// Initialize default thresholds for new KPIs only
+		// Initialize default thresholds for new KPIs only (only if default exists)
 		const newThresholds = new SvelteMap(appState.thresholds);
 		for (const name of kpiNames) {
 			if (!newThresholds.has(name)) {
-				newThresholds.set(name, { operator: '>=', value: 0 });
+				const defaultThreshold = getDefaultThreshold(name);
+				if (defaultThreshold) {
+					newThresholds.set(name, defaultThreshold);
+				}
 			}
 		}
 		appState.thresholds = newThresholds;

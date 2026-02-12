@@ -95,6 +95,9 @@ export class AppState {
 	/** Named groups of KPIs */
 	kpiGroups = $state<KpiGroup[]>([]);
 
+	/** Selected KPI group id for dashboard filtering (null = all groups) */
+	selectedGroupId = $state<string | null>(null);
+
 	/** KPIs that have been assigned to a group */
 	groupedKpis = $derived.by(() => {
 		const set = new SvelteSet<string>();
@@ -266,7 +269,10 @@ export class AppState {
 		const days = daysOverride ?? this.getDaysForKpi(kpiName);
 		const cutoff = new Date();
 		cutoff.setDate(cutoff.getDate() - days);
-		return kpi.values.filter((v) => v.date >= cutoff);
+		// Filter and sort chronologically (oldest to newest)
+		return kpi.values
+			.filter((v) => v.date >= cutoff)
+			.sort((a, b) => a.date.getTime() - b.date.getTime());
 	}
 
 	addOverlay(primaryKpi: string, additionalKpi: string) {
@@ -332,6 +338,7 @@ export class AppState {
 		this.kpiDaysOverride = new SvelteMap();
 		this.areaDaysOverride = new SvelteMap();
 		this.focusedChart = null;
+		this.selectedGroupId = null;
 		this.view = 'splash';
 		// Don't clear thresholds, groups, settings - they persist across files
 	}
