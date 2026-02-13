@@ -9,13 +9,15 @@
 	import GroupDialog from './group-dialog.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ModeToggle from '$lib/components/mode-toggle.svelte';
+	import { toast } from 'svelte-sonner';
 	import {
 		MapPin,
 		Calendar,
 		ChevronLeft,
 		CheckCircle,
 		XCircle,
-		HelpCircle
+		HelpCircle,
+		Loader2
 	} from '@lucide/svelte';
 
 	const appState = useAppState();
@@ -23,6 +25,7 @@
 
 	type KpiStatusFilter = 'all' | 'passing' | 'failing' | 'noThreshold';
 	let statusFilter = $state<KpiStatusFilter>('all');
+	let generatingCharts = $state(false);
 
 	function toggleFilter(filter: Exclude<KpiStatusFilter, 'all'>) {
 		statusFilter = statusFilter === filter ? 'all' : filter;
@@ -80,6 +83,47 @@
 		if (appState.selectedGroupId) return [];
 		return appState.kpiNames.filter((name) => !visibleGroupedKpis.has(name));
 	});
+
+	async function generateExcelCharts() {
+		if (generatingCharts) return;
+		generatingCharts = true;
+		try {
+			const areas = Array.from(appState.data.values()).map((area) => ({
+				name: area.name,
+				kpis: area.kpis.map((kpi) => ({
+					name: kpi.name,
+					values: kpi.values.map((point) => ({
+						date: point.date.toISOString(),
+						value: point.value
+					}))
+				}))
+			}));
+
+			const thresholds = Object.fromEntries(Array.from(appState.thresholds.entries()));
+
+			const response = await fetch('/api/reports/generate-charts', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					areas,
+					thresholds,
+					sourceReportFile: appState.sourceReportFile
+				})
+			});
+
+			const data = await response.json();
+			if (!response.ok) {
+				throw new Error(data?.error ?? 'Failed to generate charts workbook');
+			}
+
+			toast.success('Excel charts generated. Downloading file...');
+			window.open(data.url, '_blank');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to generate charts workbook');
+		} finally {
+			generatingCharts = false;
+		}
+	}
 </script>
 
 <Sidebar.SidebarProvider bind:open={appState.sidebarOpen}>
@@ -153,6 +197,20 @@
 						</button>
 					{/each}
 				</div>
+				<Button
+					variant="outline"
+					size="sm"
+					class="h-7 text-xs"
+					onclick={generateExcelCharts}
+					disabled={generatingCharts || appState.data.size === 0}
+				>
+					{#if generatingCharts}
+						<Loader2 class="mr-1 h-3 w-3 animate-spin" />
+					{:else}
+						<span class="mr-1">📈</span>
+					{/if}
+					Excel Charts
+				</Button>
 				<Button
 					variant="outline"
 					size="sm"

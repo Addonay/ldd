@@ -78,6 +78,7 @@
 		try {
 			const buffer = await file.arrayBuffer();
 			const result = parseExcelBuffer(buffer);
+			appState.sourceReportFile = null;
 			loadData(result);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to parse file');
@@ -96,6 +97,7 @@
 		try {
 			const buffer = await fetchExcelFromUrl(url.trim());
 			const result = parseExcelBuffer(buffer);
+			appState.sourceReportFile = null;
 			loadData(result);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to fetch spreadsheet');

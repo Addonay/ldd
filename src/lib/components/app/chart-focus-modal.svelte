@@ -10,6 +10,7 @@
 
 	let focusDays = $state(30);
 	let addDialogOpen = $state(false);
+	let focusedChartRef = $state<{ copyChartToClipboard: () => Promise<void> } | null>(null);
 
 	// Additional KPIs overlaid on the focused chart
 	let overlayKpis = $state<string[]>([]);
@@ -44,16 +45,9 @@
 	}
 
 	async function copyChart() {
-		// Find the canvas inside our modal content
-		const canvas = document.querySelector('.focus-modal-chart canvas') as HTMLCanvasElement;
-		if (!canvas) return;
-
 		try {
-			const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-			if (blob) {
-				await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-				toast.success('Chart copied to clipboard');
-			}
+			if (!focusedChartRef) return;
+			await focusedChartRef.copyChartToClipboard();
 		} catch {
 			toast.error('Failed to copy chart');
 		}
@@ -147,6 +141,7 @@
 			<!-- Large chart -->
 			<div class="focus-modal-chart flex flex-1 flex-col p-1" style="min-height: 600px;">
 				<KpiChart
+					bind:this={focusedChartRef}
 					{kpiName}
 					additionalKpis={overlayKpis}
 					showToolbar={false}

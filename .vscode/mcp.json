@@ -1,0 +1,17 @@
+{
+	"servers": {
+		"tavily-search": {
+			"type": "stdio",
+			"command": "bunx",
+			"args": [
+				"-y",
+				"tavily-mcp@latest"
+			],
+			"env":{
+				"TAVILY_API_KEY": "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",
+				"DEFAULT_PARAMETERS": "{ \"include_images\": true, \"max_results\": 20, \"search_depth\": \"advanced\" }"
+			}
+		}
+	},
+	"inputs": []
+}

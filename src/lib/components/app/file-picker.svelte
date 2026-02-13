@@ -11,9 +11,10 @@
 	interface Props {
 		files: string[];
 		onManualUpload: () => void;
+		allowManualUpload?: boolean;
 	}
 
-	let { files, onManualUpload }: Props = $props();
+	let { files, onManualUpload, allowManualUpload = true }: Props = $props();
 
 	const appState = useAppState();
 
@@ -73,6 +74,7 @@
 
 			const buffer = await response.arrayBuffer();
 			const result = parseExcelBuffer(buffer);
+			appState.sourceReportFile = filename;
 			loadData(result);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to load file');
@@ -101,27 +103,35 @@
 				<Card.Description>Choose from your collected reports</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-2">
-				{#each files as file}
-					<button
-						class="flex w-full items-center justify-between rounded-md border border-border bg-background px-4 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
-						disabled={loading}
-						onclick={() => handleLoadFile(file)}
-					>
-						<div class="flex items-center gap-3">
-							<FileSpreadsheet class="h-5 w-5 text-muted-foreground" />
-							<span class="font-medium">{file}</span>
-						</div>
-						{#if loading && selectedFile === file}
-							<Loader2 class="h-4 w-4 animate-spin text-primary" />
-						{/if}
-					</button>
-				{/each}
+				{#if files.length > 0}
+					{#each files as file}
+						<button
+							class="flex w-full items-center justify-between rounded-md border border-border bg-background px-4 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+							disabled={loading}
+							onclick={() => handleLoadFile(file)}
+						>
+							<div class="flex items-center gap-3">
+								<FileSpreadsheet class="h-5 w-5 text-muted-foreground" />
+								<span class="font-medium">{file}</span>
+							</div>
+							{#if loading && selectedFile === file}
+								<Loader2 class="h-4 w-4 animate-spin text-primary" />
+							{/if}
+						</button>
+					{/each}
+				{:else}
+					<div class="rounded-md border border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+						No approved reports are currently available.
+					</div>
+				{/if}
 			</Card.Content>
-			<Card.Footer>
-				<Button variant="outline" class="w-full" onclick={onManualUpload} disabled={loading}>
-					Upload Different File
-				</Button>
-			</Card.Footer>
+			{#if allowManualUpload}
+				<Card.Footer>
+					<Button variant="outline" class="w-full" onclick={onManualUpload} disabled={loading}>
+						Upload Different File
+					</Button>
+				</Card.Footer>
+			{/if}
 		</Card.Root>
 
 		<!-- Footer hint -->

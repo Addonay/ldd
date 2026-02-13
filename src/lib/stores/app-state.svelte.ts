@@ -68,6 +68,9 @@ export class AppState {
 	/** All area names discovered from the file */
 	areaNames = $state<string[]>([]);
 
+	/** Source report filename if loaded from static/reports */
+	sourceReportFile = $state<string | null>(null);
+
 	/** Whether data has been loaded */
 	hasData = $derived(this.data.size > 0);
 
@@ -334,6 +337,7 @@ export class AppState {
 		this.data = new SvelteMap();
 		this.kpiNames = [];
 		this.areaNames = [];
+		this.sourceReportFile = null;
 		this.chartOverlays = new SvelteMap();
 		this.kpiDaysOverride = new SvelteMap();
 		this.areaDaysOverride = new SvelteMap();

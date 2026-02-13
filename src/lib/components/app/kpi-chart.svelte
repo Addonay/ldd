@@ -56,6 +56,7 @@
 	const appState = useAppState();
 
 	let canvasEl: HTMLCanvasElement | undefined = $state();
+	let chartCardEl: HTMLDivElement | undefined = $state();
 	let chartInstance: Chart | null = null;
 	let hovered = $state(false);
 
@@ -150,6 +151,18 @@
 
 		const data = getChartData();
 		const annotations = getThresholdAnnotation();
+		const primaryData = (data.datasets[0]?.data ?? []) as Array<{ x: number; y: number }>;
+		const minX = primaryData[0]?.x;
+		const maxX = primaryData[primaryData.length - 1]?.x;
+		const startDayTs =
+			typeof minX === 'number' ? new Date(new Date(minX).setHours(0, 0, 0, 0)).getTime() : undefined;
+		const endDayTs =
+			typeof maxX === 'number' ? new Date(new Date(maxX).setHours(0, 0, 0, 0)).getTime() : undefined;
+		const totalDays =
+			typeof startDayTs === 'number' && typeof endDayTs === 'number'
+				? Math.max(1, Math.round((endDayTs - startDayTs) / 86_400_000) + 1)
+				: 0;
+		const showAllDates = totalDays > 0 && totalDays <= 30;
 
 		const style = getComputedStyle(document.documentElement);
 		const fgColor = style.getPropertyValue('--muted-foreground').trim() || '#888';
@@ -177,13 +190,26 @@
 							displayFormats: { day: 'MMM d' },
 							tooltipFormat: 'MMM d, yyyy'
 						},
-						min: data.datasets[0]?.data[0]?.x,
-						max: data.datasets[0]?.data[data.datasets[0]?.data.length - 1]?.x,
+						afterBuildTicks: (scale) => {
+							if (!showAllDates || typeof startDayTs !== 'number' || typeof endDayTs !== 'number') {
+								return;
+							}
+
+							const ticks: Array<{ value: number }> = [];
+							for (let ts = startDayTs; ts <= endDayTs; ts += 86_400_000) {
+								ticks.push({ value: ts });
+							}
+							scale.ticks = ticks as any;
+						},
+						min: minX,
+						max: maxX,
 						ticks: {
 							color: fgColor,
 							font: { size: 9, family: 'Courier New, monospace' },
-							maxRotation: 0,
-							maxTicksLimit: 8
+							minRotation: showAllDates ? 60 : 0,
+							maxRotation: showAllDates ? 90 : 0,
+							autoSkip: !showAllDates,
+							maxTicksLimit: showAllDates ? Math.max(7, totalDays) : 8
 						},
 						grid: {
 							color: borderColorVal,
@@ -274,30 +300,179 @@
 		}
 	});
 
-	async function copyToClipboard(e: MouseEvent) {
-		e.stopPropagation();
-		if (!chartInstance || !canvasEl) return;
+	function drawRoundedRect(
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		radius: number,
+		fillStyle: string
+	) {
+		const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+		ctx.fillStyle = fillStyle;
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.lineTo(x + width - r, y);
+		ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+		ctx.lineTo(x + width, y + height - r);
+		ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+		ctx.lineTo(x + r, y + height);
+		ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+		ctx.lineTo(x, y + r);
+		ctx.quadraticCurveTo(x, y, x + r, y);
+		ctx.closePath();
+		ctx.fill();
+	}
+
+	function drawWrappedText(
+		ctx: CanvasRenderingContext2D,
+		text: string,
+		x: number,
+		y: number,
+		maxWidth: number,
+		lineHeight: number
+	) {
+		if (!text || maxWidth <= 0) return;
+
+		const lines: string[] = [];
+		let currentLine = '';
+
+		for (const char of Array.from(text)) {
+			if (char === '\n') {
+				lines.push(currentLine);
+				currentLine = '';
+				continue;
+			}
+
+			const candidate = `${currentLine}${char}`;
+			if (!currentLine || ctx.measureText(candidate).width <= maxWidth) {
+				currentLine = candidate;
+			} else {
+				lines.push(currentLine);
+				currentLine = char;
+			}
+		}
+
+		if (currentLine) lines.push(currentLine);
+
+		lines.forEach((line, i) => {
+			ctx.fillText(line, x, y + i * lineHeight);
+		});
+	}
+
+	async function createChartCardBlob(): Promise<Blob | null> {
+		if (!chartCardEl || !canvasEl) return null;
+
+		const cardRect = chartCardEl.getBoundingClientRect();
+		const canvasRect = canvasEl.getBoundingClientRect();
+		if (!cardRect.width || !cardRect.height) return null;
+
+		const canvasScaleX = canvasRect.width ? canvasEl.width / canvasRect.width : 1;
+		const canvasScaleY = canvasRect.height ? canvasEl.height / canvasRect.height : 1;
+		const baseScale = Math.max(canvasScaleX, canvasScaleY, window.devicePixelRatio || 1);
+		const scale = Math.min(4, Math.max(2.5, baseScale * 1.5));
+		const tempCanvas = document.createElement('canvas');
+		tempCanvas.width = Math.round(cardRect.width * scale);
+		tempCanvas.height = Math.round(cardRect.height * scale);
+		const tempCtx = tempCanvas.getContext('2d');
+		if (!tempCtx) return null;
+		tempCtx.imageSmoothingEnabled = true;
+		tempCtx.imageSmoothingQuality = 'high';
+
+		tempCtx.fillStyle = '#ffffff';
+		tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+		const drawX = (canvasRect.left - cardRect.left) * scale;
+		const drawY = (canvasRect.top - cardRect.top) * scale;
+		const drawW = canvasRect.width * scale;
+		const drawH = canvasRect.height * scale;
+		tempCtx.drawImage(canvasEl, drawX, drawY, drawW, drawH);
+
+		const latestEl = chartCardEl.querySelector('[data-copy-latest]') as HTMLElement | null;
+		const latestRect = latestEl?.getBoundingClientRect();
+
+		const statusDot = chartCardEl.querySelector('[data-copy-status-dot]') as HTMLElement | null;
+		if (statusDot) {
+			const dotRect = statusDot.getBoundingClientRect();
+			const dotStyle = getComputedStyle(statusDot);
+			const centerX = (dotRect.left - cardRect.left + dotRect.width / 2) * scale;
+			const centerY = (dotRect.top - cardRect.top + dotRect.height / 2) * scale;
+			const radius = (Math.min(dotRect.width, dotRect.height) / 2) * scale;
+			tempCtx.fillStyle = dotStyle.backgroundColor || '#888';
+			tempCtx.beginPath();
+			tempCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+			tempCtx.fill();
+		}
+
+		const titleEl = chartCardEl.querySelector('[data-copy-title]') as HTMLElement | null;
+		if (titleEl) {
+			const titleRect = titleEl.getBoundingClientRect();
+			const titleStyle = getComputedStyle(titleEl);
+			const fontSize = parseFloat(titleStyle.fontSize) * scale;
+			tempCtx.fillStyle = titleStyle.color || '#111';
+			tempCtx.font = `${titleStyle.fontWeight} ${fontSize}px ${titleStyle.fontFamily}`;
+			tempCtx.textBaseline = 'top';
+
+			const titleText = titleEl.textContent?.trim() ?? getChartTitle();
+			const titleX = (titleRect.left - cardRect.left) * scale;
+			const titleY = (titleRect.top - cardRect.top) * scale;
+			const titleGap = 8 * scale;
+			const titleRightLimit = latestRect
+				? (latestRect.left - cardRect.left) * scale - titleGap
+				: tempCanvas.width - 12 * scale;
+			const maxTitleWidth = Math.max(0, titleRightLimit - titleX);
+			const styleLineHeight = parseFloat(titleStyle.lineHeight);
+			const lineHeight = Number.isFinite(styleLineHeight) ? styleLineHeight * scale : fontSize * 1.2;
+
+			tempCtx.save();
+			tempCtx.beginPath();
+			tempCtx.rect(titleX, titleY, maxTitleWidth, titleRect.height * scale);
+			tempCtx.clip();
+			drawWrappedText(tempCtx, titleText, titleX, titleY, maxTitleWidth, lineHeight);
+			tempCtx.restore();
+		}
+
+		if (latestEl) {
+			const latestRectSafe = latestRect ?? latestEl.getBoundingClientRect();
+			const latestStyle = getComputedStyle(latestEl);
+			const x = (latestRectSafe.left - cardRect.left) * scale;
+			const y = (latestRectSafe.top - cardRect.top) * scale;
+			const w = latestRectSafe.width * scale;
+			const h = latestRectSafe.height * scale;
+			const radius = parseFloat(latestStyle.borderTopLeftRadius || '2') * scale;
+
+			drawRoundedRect(tempCtx, x, y, w, h, radius, latestStyle.backgroundColor || '#eee');
+
+			const fontSize = parseFloat(latestStyle.fontSize) * scale;
+			tempCtx.fillStyle = latestStyle.color || '#222';
+			tempCtx.font = `${latestStyle.fontWeight} ${fontSize}px ${latestStyle.fontFamily}`;
+			tempCtx.textAlign = 'center';
+			tempCtx.textBaseline = 'middle';
+			tempCtx.fillText(latestEl.textContent?.trim() ?? '', x + w / 2, y + h / 2);
+			tempCtx.textAlign = 'start';
+			tempCtx.textBaseline = 'alphabetic';
+		}
+
+		return await new Promise<Blob | null>((resolve) => tempCanvas.toBlob(resolve, 'image/png'));
+	}
+
+	export async function copyChartToClipboard() {
+		if (!chartCardEl || !canvasEl) return;
 
 		try {
-			const tempCanvas = document.createElement('canvas');
-			tempCanvas.width = canvasEl.width;
-			tempCanvas.height = canvasEl.height;
-			const tempCtx = tempCanvas.getContext('2d');
-			if (!tempCtx) return;
-
-			tempCtx.drawImage(canvasEl, 0, 0);
-
-			const blob = await new Promise<Blob | null>((resolve) =>
-				tempCanvas.toBlob(resolve, 'image/png')
-			);
-
-			if (blob) {
-				await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-				toast.success('Chart copied to clipboard');
-			}
+			const blob = await createChartCardBlob();
+			if (!blob) return;
+			await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+			toast.success('Chart copied to clipboard');
 		} catch {
 			toast.error('Failed to copy chart');
 		}
+	}
+
+	async function copyToClipboard(e: MouseEvent) {
+		e.stopPropagation();
+		await copyChartToClipboard();
 	}
 
 	function handleCardClick() {
@@ -315,6 +490,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+	bind:this={chartCardEl}
 	class="group/chart chart-card relative flex flex-col rounded-sm border border-border bg-card transition-all duration-200
 		{fillHeight ? 'h-full' : ''}
 		{status === 'failing' ? 'bg-destructive/4' : ''}
@@ -330,18 +506,20 @@
 >
 	<!-- Title row -->
 	<div class="flex items-center justify-between px-3 pt-2.5 pb-1">
-		<div class="flex items-center gap-2">
+		<div class="flex min-w-0 flex-1 items-center gap-2">
 			<!-- Status dot -->
 			{#if status === 'passing'}
-				<span class="h-2 w-2 rounded-full bg-green-500"></span>
+				<span data-copy-status-dot class="h-2 w-2 rounded-full bg-green-500"></span>
 			{:else if status === 'failing'}
-				<span class="status-dot-pulse h-2 w-2 rounded-full bg-destructive"></span>
+				<span data-copy-status-dot class="status-dot-pulse h-2 w-2 rounded-full bg-destructive"
+				></span>
 			{:else}
-				<span class="h-2 w-2 rounded-full bg-muted-foreground/30"></span>
+				<span data-copy-status-dot class="h-2 w-2 rounded-full bg-muted-foreground/30"></span>
 			{/if}
 
 			<h3
-				class="max-w-full wrap-break-word text-xs font-semibold tracking-wide uppercase leading-tight {status === 'failing'
+				data-copy-title
+				class="min-w-0 break-all text-xs font-semibold tracking-wide uppercase leading-tight whitespace-normal {status === 'failing'
 					? 'text-destructive'
 					: 'text-foreground'}"
 				title={getChartTitle()}
@@ -353,6 +531,7 @@
 		{#if appState.getLatestValue(kpiName) !== null}
 			{@const latest = appState.getLatestValue(kpiName)!}
 			<span
+				data-copy-latest
 				class="ml-2 shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium {status === 'failing'
 					? 'bg-destructive/15 text-destructive'
 					: 'bg-primary/10 text-primary'}"
