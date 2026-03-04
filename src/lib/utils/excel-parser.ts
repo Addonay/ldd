@@ -215,8 +215,9 @@ function makeDateOnly(year: number, month: number, day: number): Date | null {
 
 export function parseDate(val: unknown): Date | null {
 	if (val instanceof Date) {
-		// Ensure it's a valid date
-		return isNaN(val.getTime()) ? null : val;
+		if (isNaN(val.getTime())) return null;
+		// Excel date cells are date-only; normalize via UTC Y-M-D to avoid timezone day shifts
+		return makeDateOnly(val.getUTCFullYear(), val.getUTCMonth() + 1, val.getUTCDate());
 	}
 	if (typeof val === 'number') {
 		// Excel serial date

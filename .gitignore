@@ -23,6 +23,4 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # Reports (ignore Excel files)
-static/reports/*.xlsx
-static/reports/*.xls
-static/reports/*.csv
+static/reports/*

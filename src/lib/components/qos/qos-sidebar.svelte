@@ -3,6 +3,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import {
+		House,
 		MapPin,
 		Settings,
 		RotateCcw,
@@ -27,7 +28,7 @@
 	<Sidebar.SidebarHeader class="border-b border-sidebar-border p-4">
 		<div class="flex items-center gap-2">
 			<FileSpreadsheet class="h-5 w-5 text-sidebar-primary" />
-			<span class="text-sm font-bold text-sidebar-foreground">KPI Dashboard</span>
+			<span class="text-sm font-bold text-sidebar-foreground">QoS Dashboard</span>
 		</div>
 	</Sidebar.SidebarHeader>
 
@@ -95,6 +96,12 @@
 
 	<Sidebar.SidebarFooter class="border-t border-sidebar-border p-2">
 		<Sidebar.SidebarMenu>
+			<Sidebar.SidebarMenuItem>
+				<Sidebar.SidebarMenuButton onclick={() => (window.location.href = '/')}>
+					<House class="h-4 w-4" />
+					<span>Gateway</span>
+				</Sidebar.SidebarMenuButton>
+			</Sidebar.SidebarMenuItem>
 			<Sidebar.SidebarMenuItem>
 				<Sidebar.SidebarMenuButton onclick={() => (appState.thresholdDialogOpen = true)}>
 					<Sliders class="h-4 w-4" />

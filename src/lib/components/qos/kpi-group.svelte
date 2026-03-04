@@ -6,9 +6,10 @@
 	interface Props {
 		groupName: string;
 		kpiNames: string[];
+		onRegisterExporter?: (kpiName: string, exporter: (() => Promise<Blob | null>) | null) => void;
 	}
 
-	let { groupName, kpiNames }: Props = $props();
+	let { groupName, kpiNames, onRegisterExporter }: Props = $props();
 
 	const appState = useAppState();
 
@@ -60,6 +61,7 @@
 				onAddKpi={() => openAddDialog(kpiName)}
 				onRemoveKpi={(name) => handleRemove(kpiName, name)}
 				onChartClick={() => handleChartClick(kpiName)}
+				onRegisterExporter={onRegisterExporter}
 			/>
 		</div>
 	{/each}

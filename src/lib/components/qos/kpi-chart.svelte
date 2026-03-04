@@ -40,6 +40,7 @@
 		onRemoveKpi?: (name: string) => void;
 		onChartClick?: () => void;
 		fillHeight?: boolean;
+		onRegisterExporter?: (kpiName: string, exporter: (() => Promise<Blob | null>) | null) => void;
 	}
 
 	let {
@@ -50,7 +51,8 @@
 		onAddKpi,
 		onRemoveKpi,
 		onChartClick,
-		fillHeight = false
+		fillHeight = false,
+		onRegisterExporter
 	}: Props = $props();
 
 	const appState = useAppState();
@@ -80,19 +82,30 @@
 		'oklch(0.78 0.10 95)' // olive
 	];
 
+	function toDayStartTs(date: Date): number {
+		const dayStart = new Date(date);
+		dayStart.setHours(0, 0, 0, 0);
+		return dayStart.getTime();
+	}
+
 	function getChartData() {
+		const primaryStatus = getThresholdStatus();
 		const allKpis = [kpiName, ...additionalKpis];
 		const datasets = allKpis.map((name, i) => {
-			const values = appState.getFilteredValues(name, daysOverride);
+			const values = appState
+				.getFilteredValues(name, daysOverride)
+				.slice()
+				.sort((a, b) => a.date.getTime() - b.date.getTime());
+			const color = i === 0 && primaryStatus === 'passing' ? 'oklch(0.72 0.16 145)' : COLORS[i % COLORS.length];
 			return {
 				label: name,
-				data: values.map((v) => ({ x: v.date.getTime(), y: v.value })),
-				borderColor: COLORS[i % COLORS.length],
-				backgroundColor: COLORS[i % COLORS.length],
+				data: values.map((v) => ({ x: toDayStartTs(v.date), y: v.value })),
+				borderColor: color,
+				backgroundColor: color,
 				borderWidth: 1.5,
 				pointRadius: 0,
 				pointHoverRadius: 3,
-				pointHoverBackgroundColor: COLORS[i % COLORS.length],
+				pointHoverBackgroundColor: color,
 				tension: 0.3,
 				fill: false
 			};
@@ -138,22 +151,11 @@
 		return appState.getThresholdLabel(kpiName);
 	}
 
-	function buildChart() {
-		if (!canvasEl) return;
-
-		if (chartInstance) {
-			chartInstance.destroy();
-			chartInstance = null;
-		}
-
-		const ctx = canvasEl.getContext('2d');
-		if (!ctx) return;
-
-		const data = getChartData();
-		const annotations = getThresholdAnnotation();
-		const primaryData = (data.datasets[0]?.data ?? []) as Array<{ x: number; y: number }>;
-		const minX = primaryData[0]?.x;
-		const maxX = primaryData[primaryData.length - 1]?.x;
+	function getChartRange(data: { datasets: Array<{ data: Array<{ x: number; y: number }> }> }) {
+		const allPoints = data.datasets.flatMap((dataset) => dataset.data ?? []);
+		const allX = allPoints.map((point) => point.x).filter((x): x is number => typeof x === 'number');
+		const minX = allX.length > 0 ? Math.min(...allX) : undefined;
+		const maxX = allX.length > 0 ? Math.max(...allX) : undefined;
 		const startDayTs =
 			typeof minX === 'number' ? new Date(new Date(minX).setHours(0, 0, 0, 0)).getTime() : undefined;
 		const endDayTs =
@@ -162,19 +164,37 @@
 			typeof startDayTs === 'number' && typeof endDayTs === 'number'
 				? Math.max(1, Math.round((endDayTs - startDayTs) / 86_400_000) + 1)
 				: 0;
-		const showAllDates = totalDays > 0 && totalDays <= 30;
+		const showAllDates = totalDays > 0 && totalDays <= 31;
+		console.log({ minX, maxX, startDayTs, endDayTs, totalDays, showAllDates });
 
+		return { minX, maxX, startDayTs, endDayTs, totalDays, showAllDates };
+	}
+
+	function getChartTheme() {
 		const style = getComputedStyle(document.documentElement);
-		const fgColor = style.getPropertyValue('--muted-foreground').trim() || '#888';
-		const borderColorVal = style.getPropertyValue('--border').trim() || '#333';
+		return {
+			fgColor: style.getPropertyValue('--muted-foreground').trim() || '#888',
+			borderColorVal: style.getPropertyValue('--border').trim() || '#333'
+		};
+	}
 
-		chartInstance = new Chart(ctx, {
+	function createChartInstance(
+		ctx: CanvasRenderingContext2D,
+		config?: { responsive?: boolean; animationDuration?: number; devicePixelRatio?: number }
+	): Chart {
+		const data = getChartData() as { datasets: Array<{ data: Array<{ x: number; y: number }> }> };
+		const annotations = getThresholdAnnotation();
+		const { minX, maxX, startDayTs, endDayTs, totalDays, showAllDates } = getChartRange(data);
+		const { fgColor, borderColorVal } = getChartTheme();
+
+		return new Chart(ctx, {
 			type: 'line',
 			data,
 			options: {
-				responsive: true,
+				responsive: config?.responsive ?? true,
 				maintainAspectRatio: false,
-				animation: { duration: 300 },
+				animation: { duration: config?.animationDuration ?? 300 },
+				devicePixelRatio: config?.devicePixelRatio,
 				interaction: {
 					mode: 'index',
 					intersect: false
@@ -191,7 +211,11 @@
 							tooltipFormat: 'MMM d, yyyy'
 						},
 						afterBuildTicks: (scale) => {
-							if (!showAllDates || typeof startDayTs !== 'number' || typeof endDayTs !== 'number') {
+							if (
+								!showAllDates ||
+								typeof startDayTs !== 'number' ||
+								typeof endDayTs !== 'number'
+							) {
 								return;
 							}
 
@@ -272,6 +296,20 @@
 		});
 	}
 
+	function buildChart() {
+		if (!canvasEl) return;
+
+		if (chartInstance) {
+			chartInstance.destroy();
+			chartInstance = null;
+		}
+
+		const ctx = canvasEl.getContext('2d');
+		if (!ctx) return;
+
+		chartInstance = createChartInstance(ctx, { responsive: true, animationDuration: 300 });
+	}
+
 	$effect(() => {
 		// Touch reactive deps to trigger rebuilds
 		void appState.selectedArea;
@@ -290,10 +328,12 @@
 	});
 
 	onMount(() => {
+		onRegisterExporter?.(kpiName, createChartCardBlob);
 		if (canvasEl) buildChart();
 	});
 
 	onDestroy(() => {
+		onRegisterExporter?.(kpiName, null);
 		if (chartInstance) {
 			chartInstance.destroy();
 			chartInstance = null;
@@ -361,6 +401,50 @@
 		});
 	}
 
+	function createHdChartCanvas(width: number, height: number, scale: number): HTMLCanvasElement | null {
+		const exportWidth = Math.max(1, Math.round(width * scale));
+		const exportHeight = Math.max(1, Math.round(height * scale));
+		const exportCanvas = document.createElement('canvas');
+		exportCanvas.width = exportWidth;
+		exportCanvas.height = exportHeight;
+		exportCanvas.style.width = `${exportWidth}px`;
+		exportCanvas.style.height = `${exportHeight}px`;
+
+		const exportCtx = exportCanvas.getContext('2d');
+		if (!exportCtx) return null;
+
+		const exportChart = createChartInstance(exportCtx, {
+			responsive: false,
+			animationDuration: 0,
+			devicePixelRatio: 1
+		});
+
+		exportChart.resize(exportWidth, exportHeight);
+		exportChart.update('none');
+		exportChart.destroy();
+
+		return exportCanvas;
+	}
+
+	function hasVisiblePixels(canvas: HTMLCanvasElement): boolean {
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		if (!ctx || canvas.width === 0 || canvas.height === 0) return false;
+
+		const sampleX = Math.min(canvas.width, 64);
+		const sampleY = Math.min(canvas.height, 64);
+		const stepX = Math.max(1, Math.floor(canvas.width / sampleX));
+		const stepY = Math.max(1, Math.floor(canvas.height / sampleY));
+
+		for (let y = 0; y < canvas.height; y += stepY) {
+			for (let x = 0; x < canvas.width; x += stepX) {
+				const px = ctx.getImageData(x, y, 1, 1).data;
+				if (px[3] !== 0) return true;
+			}
+		}
+
+		return false;
+	}
+
 	async function createChartCardBlob(): Promise<Blob | null> {
 		if (!chartCardEl || !canvasEl) return null;
 
@@ -371,7 +455,7 @@
 		const canvasScaleX = canvasRect.width ? canvasEl.width / canvasRect.width : 1;
 		const canvasScaleY = canvasRect.height ? canvasEl.height / canvasRect.height : 1;
 		const baseScale = Math.max(canvasScaleX, canvasScaleY, window.devicePixelRatio || 1);
-		const scale = Math.min(4, Math.max(2.5, baseScale * 1.5));
+		const scale = Math.min(6, Math.max(3, baseScale * 2));
 		const tempCanvas = document.createElement('canvas');
 		tempCanvas.width = Math.round(cardRect.width * scale);
 		tempCanvas.height = Math.round(cardRect.height * scale);
@@ -387,7 +471,9 @@
 		const drawY = (canvasRect.top - cardRect.top) * scale;
 		const drawW = canvasRect.width * scale;
 		const drawH = canvasRect.height * scale;
-		tempCtx.drawImage(canvasEl, drawX, drawY, drawW, drawH);
+		const hdChartCanvas = createHdChartCanvas(canvasRect.width, canvasRect.height, scale);
+		const sourceCanvas = hdChartCanvas && hasVisiblePixels(hdChartCanvas) ? hdChartCanvas : canvasEl;
+		tempCtx.drawImage(sourceCanvas, drawX, drawY, drawW, drawH);
 
 		const latestEl = chartCardEl.querySelector('[data-copy-latest]') as HTMLElement | null;
 		const latestRect = latestEl?.getBoundingClientRect();

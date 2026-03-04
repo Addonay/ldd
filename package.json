@@ -58,6 +58,7 @@
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-annotation": "^3.1.0",
 		"date-fns": "^4.1.0",
+		"exceljs": "^4.4.0",
 		"xlsx": "^0.18.5"
 	}
 }

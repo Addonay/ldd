@@ -1,5 +1,5 @@
 import { getContext, setContext, tick } from 'svelte';
-import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { SvelteDate, SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -49,9 +49,9 @@ export const OPERATORS: { label: string; value: Operator }[] = [
 
 // ── localStorage keys ──────────────────────────────────────────
 
-const LS_THRESHOLDS = 'ldd-thresholds';
-const LS_GROUPS = 'ldd-groups';
-const LS_SETTINGS = 'ldd-settings';
+const LS_THRESHOLDS = 'qos-ldd-thresholds';
+const LS_GROUPS = 'qos-ldd-groups';
+const LS_SETTINGS = 'qos-ldd-settings';
 
 // ── State class ────────────────────────────────────────────────
 
@@ -269,13 +269,17 @@ export class AppState {
 	getFilteredValues(kpiName: string, daysOverride?: number): KpiDataPoint[] {
 		const kpi = this.getKpiData(kpiName);
 		if (!kpi) return [];
-		const days = daysOverride ?? this.getDaysForKpi(kpiName);
-		const cutoff = new Date();
-		cutoff.setDate(cutoff.getDate() - days);
-		// Filter and sort chronologically (oldest to newest)
-		return kpi.values
-			.filter((v) => v.date >= cutoff)
-			.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+		const sortedValues = kpi.values.slice().sort((a, b) => a.date.getTime() - b.date.getTime());
+		if (sortedValues.length === 0) return [];
+
+		const days = Math.max(1, daysOverride ?? this.getDaysForKpi(kpiName));
+		const latestDate = sortedValues[sortedValues.length - 1].date;
+		const cutoff = new Date(latestDate);
+		cutoff.setHours(0, 0, 0, 0);
+		cutoff.setDate(cutoff.getDate() - (days - 1));
+
+		return sortedValues.filter((v) => v.date >= cutoff);
 	}
 
 	addOverlay(primaryKpi: string, additionalKpi: string) {
