@@ -1,5 +1,5 @@
-import * as XLSX from 'xlsx';
 import type { AreaData, KpiData, KpiDataPoint } from '$lib/stores/app-state.svelte';
+import * as XLSX from 'xlsx';
 
 const MAX_SOURCE_ROW = 403;
 
@@ -22,7 +22,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	kpiNames: string[];
 	areaNames: string[];
 } {
-	const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, cellNF: true });
+	const workbook = XLSX.read(buffer, { cellNF: true });
 	const areas = new Map<string, AreaData>();
 	const kpiNames: string[] = [];
 	const areaNames: string[] = [];
@@ -34,7 +34,10 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	const sheet = workbook.Sheets[sheetName];
 	const allRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
 		header: 1,
-		raw: true,
+		// In newer files / xlsx versions, date headers can surface as Invalid Date with raw=true.
+		// raw=false gives formatted date text (e.g. DD-MM-YYYY), which parseDate handles reliably.
+		raw: false,
+		dateNF: 'yyyy-mm-dd',
 		defval: null
 	});
 	const raw = allRows.slice(0, MAX_SOURCE_ROW);
@@ -44,9 +47,11 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	// Row 0 is the header — parse dates from column C onwards
 	const headerRow = raw[0];
 	if (!headerRow || headerRow.length < 3) return { areas, kpiNames, areaNames };
+	const dateStartCol = findFirstDateColumn(headerRow, 2);
+	if (dateStartCol === -1) return { areas, kpiNames, areaNames };
 
 	const dates: (Date | null)[] = [];
-	for (let col = 2; col < headerRow.length; col++) {
+	for (let col = dateStartCol; col < headerRow.length; col++) {
 		dates.push(parseDate(headerRow[col]));
 	}
 
@@ -57,7 +62,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	const blocks = splitIntoAreaBlocks(raw, sheetName);
 
 	for (const block of blocks) {
-		const areaData = parseAreaBlock(block.rows, block.areaName, dates);
+		const areaData = parseAreaBlock(block.rows, block.areaName, dates, dateStartCol);
 		if (areaData && areaData.kpis.length > 0) {
 			areas.set(block.areaName, areaData);
 			areaNames.push(block.areaName);
@@ -71,6 +76,13 @@ export function parseExcelBuffer(buffer: ArrayBuffer): {
 	}
 
 	return { areas, kpiNames, areaNames };
+}
+
+function findFirstDateColumn(row: unknown[], startCol: number): number {
+	for (let col = startCol; col < row.length; col++) {
+		if (parseDate(row[col])) return col;
+	}
+	return -1;
 }
 
 interface AreaBlock {
@@ -168,7 +180,8 @@ function getKpiName(row: unknown[]): string | null {
 function parseAreaBlock(
 	rows: unknown[][],
 	areaName: string,
-	dates: (Date | null)[]
+	dates: (Date | null)[],
+	dateStartCol: number
 ): AreaData | null {
 	const kpis: KpiData[] = [];
 
@@ -177,8 +190,8 @@ function parseAreaBlock(
 		if (!kpiName) continue;
 
 		const values: KpiDataPoint[] = [];
-		for (let col = 2; col < Math.min(row.length, dates.length + 2); col++) {
-			const dateIdx = col - 2;
+		for (let col = dateStartCol; col < Math.min(row.length, dates.length + dateStartCol); col++) {
+			const dateIdx = col - dateStartCol;
 			const date = dates[dateIdx];
 			if (!date || isNaN(date.getTime())) continue;
 
